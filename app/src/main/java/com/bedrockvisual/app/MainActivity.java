@@ -20,7 +20,8 @@ public class MainActivity extends Activity {
     void openGame() { setContentView(new GameView()); }
 
     @Override public void onBackPressed() {
-        if (!(findViewById(android.R.id.content).getChildAt(0) instanceof MenuView)) setContentView(menu);
+        ViewGroup root = (ViewGroup) findViewById(android.R.id.content);
+        if (root.getChildCount() > 0 && !(root.getChildAt(0) instanceof MenuView)) setContentView(menu);
         else super.onBackPressed();
     }
 
