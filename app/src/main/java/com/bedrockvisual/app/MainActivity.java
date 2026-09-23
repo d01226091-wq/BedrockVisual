@@ -201,8 +201,13 @@ public class MainActivity extends Activity {
         final float[] v = new float[3];
         float px=14.5f,pz=14.5f,py=5f,vy=0;
         float yaw=0.65f,pitch=-0.18f;
-        float lastX,lastY; boolean looking=false;
+        float lastX,lastY;
+        boolean looking=false;
         boolean up,down,left,right,jump;
+        boolean moveStick=false, lookStick=false;
+        float moveBaseX=120, moveBaseY=0, moveKnobX=120, moveKnobY=0;
+        float lookBaseX=0, lookBaseY=0, lookKnobX=0, lookKnobY=0;
+        final float stickRadius=70f, knobRadius=30f;
         long lastFrame=System.nanoTime();
         int selected=1;
 
@@ -314,10 +319,16 @@ public class MainActivity extends Activity {
             text(c,"Блок: "+selected+"   X:"+String.format(Locale.US,"%.1f",px)+" Z:"+String.format(Locale.US,"%.1f",pz),W-18,34,18,Color.WHITE,Paint.Align.RIGHT,false);
             p.setColor(Color.WHITE);p.setStrokeWidth(2);c.drawLine(W/2-10,H/2,W/2+10,H/2,p);c.drawLine(W/2,H/2-10,W/2,H/2+10,p);
 
-            control(c,70,H-130,150,H-50,"W"); control(c,70,H-50,150,H+30,"S");
-            control(c,0,H-90,80,H-10,"A"); control(c,140,H-90,220,H-10,"D");
-            control(c,W-170,H-130,W-50,H-50,"JUMP");
-            control(c,W-170,H-65,W-50,H+15,"BLOCK");
+            // Мобильные виртуальные джойстики: их можно двигать пальцем.
+            moveBaseX = 120; moveBaseY = H-105;
+            if(!moveStick){ moveKnobX=moveBaseX; moveKnobY=moveBaseY; }
+            drawJoystick(c,moveBaseX,moveBaseY,moveKnobX,moveKnobY,"ДВИЖЕНИЕ");
+
+            // Правая зона — обзор. Центр джойстика появляется там, где пользователь начал свайп.
+            if(lookStick) drawJoystick(c,lookBaseX,lookBaseY,lookKnobX,lookKnobY,"ОБЗОР");
+
+            control(c,W-175,H-140,W-55,H-70,"JUMP");
+            control(c,W-175,H-65,W-55,H+5,"BLOCK");
 
             for(int i=0;i<4;i++){
                 float l=W/2-130+i*68; p.setColor(i+1==selected?Color.rgb(220,220,80):Color.argb(150,20,20,25));
@@ -373,35 +384,104 @@ public class MainActivity extends Activity {
         @Override public boolean onTouchEvent(MotionEvent e) {
             float x=e.getX(),y=e.getY(),W=getWidth(),H=getHeight();
             if(e.getAction()==MotionEvent.ACTION_DOWN){
-                lastX=x;lastY=y;
-                if(y<125 && x<145){setContentView(menu);return true;}
-                if(y>H-150 && x<230){setMove(x,y,W,H,true);return true;}
-                if(y>H-150 && x>W-190){if(y>H-90) actionBlock(true); else jump=true;return true;}
-                if(y>H-75 && y<H-5 && x>W/2-140 && x<W/2+140){int i=(int)((x-(W/2-130))/68);if(i>=0&&i<4)selected=i+1;invalidate();return true;}
-                looking=x>W*.32f;
-                return true;
-            }
-            if(e.getAction()==MotionEvent.ACTION_MOVE){
-                if(looking){
-                    float dx=x-lastX,dy=y-lastY;
-                    yaw+=dx*.006f; pitch-=dy*.004f; pitch=Math.max(-1.05f,Math.min(.85f,pitch));
-                    lastX=x;lastY=y;invalidate();
+                lastX=x; lastY=y;
+                if(y<125 && x<145){ setContentView(menu); return true; }
+
+                // Левый виртуальный джойстик: центр ставится под палец и ручку можно водить.
+                if(x<Math.min(W*.45f,300) && y>H-210){
+                    moveStick=true;
+                    moveBaseX=x; moveBaseY=y;
+                    moveKnobX=x; moveKnobY=y;
+                    updateStickMovement();
+                    invalidate();
+                    return true;
+                }
+
+                // Правый джойстик: появляется в месте касания и управляет обзором.
+                if(x>W*.32f && y>70 && y<H-65){
+                    lookStick=true;
+                    lookBaseX=x; lookBaseY=y;
+                    lookKnobX=x; lookKnobY=y;
+                    lastX=x; lastY=y;
+                    invalidate();
+                    return true;
+                }
+
+                if(y>H-155 && x>W-205){
+                    if(y>H-90) actionBlock(true); else jump=true;
+                    return true;
+                }
+
+                if(y>H-75 && y<H-5 && x>W/2-140 && x<W/2+140){
+                    int i=(int)((x-(W/2-130))/68);
+                    if(i>=0&&i<4) selected=i+1;
+                    invalidate();
+                    return true;
                 }
                 return true;
             }
+
+            if(e.getAction()==MotionEvent.ACTION_MOVE){
+                if(moveStick){
+                    moveKnobX=x; moveKnobY=y;
+                    float dx=x-moveBaseX, dy=y-moveBaseY;
+                    float len=(float)Math.sqrt(dx*dx+dy*dy);
+                    if(len>stickRadius){ dx*=stickRadius/len; dy*=stickRadius/len; moveKnobX=moveBaseX+dx; moveKnobY=moveBaseY+dy; }
+                    updateStickMovement();
+                    invalidate();
+                    return true;
+                }
+                if(lookStick){
+                    float dx=x-lastX, dy=y-lastY;
+                    yaw+=dx*.006f; pitch-=dy*.004f;
+                    pitch=Math.max(-1.05f,Math.min(.85f,pitch));
+                    lookKnobX=x; lookKnobY=y;
+                    float dx2=x-lookBaseX, dy2=y-lookBaseY, len=(float)Math.sqrt(dx2*dx2+dy2*dy2);
+                    if(len>stickRadius){ dx2*=stickRadius/len; dy2*=stickRadius/len; lookKnobX=lookBaseX+dx2; lookKnobY=lookBaseY+dy2; }
+                    lastX=x; lastY=y;
+                    invalidate();
+                    return true;
+                }
+                return true;
+            }
+
             if(e.getAction()==MotionEvent.ACTION_UP || e.getAction()==MotionEvent.ACTION_CANCEL){
-                if(looking && Math.abs(x-lastX)<8 && Math.abs(y-lastY)<8 && x>W*.32f) actionBlock(false);
-                up=down=left=right=false;jump=false;looking=false;
+                if(moveStick){ moveStick=false; up=down=left=right=false; }
+                if(lookStick){ lookStick=false; }
+                jump=false;
+                invalidate();
                 return true;
             }
             return true;
         }
 
-        void setMove(float x,float y,float W,float H,boolean on){
-            if(y>H-130 && x>55&&x<165) up=true;
-            else if(y>H-65 && x>55&&x<165) down=true;
-            else if(y>H-100 && x<90) left=true;
-            else if(y>H-100 && x>135&&x<225) right=true;
+        void updateStickMovement(){
+            float dx=moveKnobX-moveBaseX, dy=moveKnobY-moveBaseY;
+            float nx=dx/stickRadius, ny=dy/stickRadius;
+            float dead=.18f;
+            if(Math.abs(nx)<dead) nx=0;
+            if(Math.abs(ny)<dead) ny=0;
+            // Вверх/вниз — вперёд/назад, влево/вправо — боковое движение.
+            up=ny < -.28f; down=ny > .28f;
+            left=nx < -.28f; right=nx > .28f;
+        }
+
+        void drawJoystick(Canvas c,float bx,float by,float kx,float ky,String label){
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb(80,10,10,18));
+            c.drawCircle(bx,by,stickRadius+12,p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(3);
+            p.setColor(Color.argb(190,120,230,255));
+            c.drawCircle(bx,by,stickRadius,p);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb(180,35,45,58));
+            c.drawCircle(kx,ky,knobRadius,p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2);
+            p.setColor(Color.argb(230,220,240,255));
+            c.drawCircle(kx,ky,knobRadius,p);
+            text(c,label,bx,by+stickRadius+25,14,Color.WHITE,Paint.Align.CENTER,true);
         }
 
         void text(Canvas c,String s,float x,float y,float size,int color,Paint.Align a,boolean bold){
